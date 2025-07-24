@@ -13,6 +13,7 @@ except ModuleNotFoundError:
 import time
 from PIL import Image
 import io
+import os
 
 app = FastAPI()
 
@@ -25,13 +26,20 @@ app.add_middleware(
 )
 
 device = torch.device('cpu')
-# Load eye state model
 eye_model = EyeCNN()
-eye_model.load_state_dict(torch.load('backend/ml/eye_cnn.pth', map_location=device))
-eye_model.eval()
-# Load yawn model
 yawn_model = YawnCNN()
-yawn_model.load_state_dict(torch.load('backend/ml/yawn_cnn.pth', map_location=device))
+
+# Try both possible model paths for local and Render deployment
+try:
+    # For local development (run from project root)
+    eye_model.load_state_dict(torch.load('backend/ml/eye_cnn.pth', map_location=device))
+    yawn_model.load_state_dict(torch.load('backend/ml/yawn_cnn.pth', map_location=device))
+except FileNotFoundError:
+    # For Render (root is backend/)
+    eye_model.load_state_dict(torch.load('ml/eye_cnn.pth', map_location=device))
+    yawn_model.load_state_dict(torch.load('ml/yawn_cnn.pth', map_location=device))
+
+eye_model.eval()
 yawn_model.eval()
 
 eye_transform = get_eye_transforms()
