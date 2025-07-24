@@ -324,7 +324,7 @@
                 formData.append('left_eye', leftEyeBlob, 'left_eye.jpg');
                 formData.append('right_eye', rightEyeBlob, 'right_eye.jpg');
                 formData.append('mouth', mouthBlob, 'mouth.jpg');
-                fetch('http://localhost:8000/api/frame', {
+                fetch('https://productivity-tracker-backend-58pz.onrender.com/api/frame', {
                     method: 'POST',
                     body: formData
                 })
