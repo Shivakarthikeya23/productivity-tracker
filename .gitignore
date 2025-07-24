@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.venv
+.env
+.venv
+
+# Model weights
+*.pth
+*.pt
+
+# Datasets
+backend/ml/datasets/
+
+# Node/JS
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# OS
+Thumbs.db 
