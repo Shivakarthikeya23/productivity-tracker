@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=480, initial-scale=1.0">
+    <title>Student Productivity Tracker</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #f7f7f7;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #main-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
+            padding: 32px 32px 24px 32px;
+            margin: 40px auto;
+            width: 440px;
+            max-width: 95vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #warning-banner {
+            display: none;
+            color: #fff;
+            background: #d9534f;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            width: 100%;
+        }
+
+        .video-container {
+            position: relative;
+            width: 400px;
+            height: 300px;
+            margin-bottom: 18px;
+        }
+
+        #video,
+        #overlay {
+            border-radius: 10px;
+            width: 400px;
+            height: 300px;
+            display: block;
+        }
+
+        #video {
+            background: #222;
+        }
+
+        #overlay {
+            position: absolute;
+            left: 0;
+            top: 0;
+            pointer-events: none;
+        }
+
+        #status {
+            font-size: 1.2em;
+            margin-top: 8px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        #status span {
+            padding: 2px 12px;
+            border-radius: 8px;
+        }
+
+        #distraction-status.Focused {
+            background: #d4ffd4;
+            color: #1a7f1a;
+        }
+
+        #distraction-status.Distracted {
+            background: #ffd4d4;
+            color: #a11a1a;
+        }
+
+        #dashboard {
+            background: #fafbfc;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+            padding: 16px;
+            margin-top: 18px;
+            width: 100%;
+        }
+
+        #timeline {
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            width: 100%;
+            height: 30px;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        #session-stats {
+            margin-top: 8px;
+            font-size: 1.08em;
+        }
+
+        @media (max-width: 500px) {
+
+            #main-card,
+            .video-container,
+            #video,
+            #overlay {
+                width: 98vw !important;
+                max-width: 98vw !important;
+            }
+
+            #video,
+            #overlay {
+                height: 56vw !important;
+                max-height: 56vw !important;
+            }
+
+            .video-container {
+                height: 56vw !important;
+                max-height: 56vw !important;
+            }
+        }
+    </style>
+    <!-- Mediapipe Face Mesh CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+
+<body>
+    <div id="main-card">
+        <h1 style="margin-bottom: 10px;">Student Productivity Tracker</h1>
+        <div id="warning-banner"></div>
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas" width="400" height="300" style="display:none;"></canvas>
+            <canvas id="overlay" width="400" height="300"></canvas>
+        </div>
+        <div id="status">Status: <span id="distraction-status">Loading...</span></div>
+        <div style="margin-bottom: 8px;">
+            Focused Time: <span id="focused-time">0</span> s<br>
+            Distracted Time: <span id="distracted-time">0</span> s
+        </div>
+        <div id="dashboard">
+            <h3 style="margin: 0 0 8px 0;">Distraction Timeline</h3>
+            <canvas id="timeline" width="400" height="30"></canvas>
+            <div id="session-stats"></div>
+        </div>
+    </div>
+    <script>
+        // --- DOM Elements ---
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const overlay = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+        const overlayCtx = overlay.getContext('2d');
+        const statusSpan = document.getElementById('distraction-status');
+        const focusedTimeSpan = document.getElementById('focused-time');
+        const distractedTimeSpan = document.getElementById('distracted-time');
+        const timeline = document.getElementById('timeline');
+        const timelineCtx = timeline.getContext('2d');
+        const sessionStats = document.getElementById('session-stats');
+        const warningBanner = document.getElementById('warning-banner');
+
+        let lastStatus = 'Loading...';
+        let focusedTime = 0;
+        let distractedTime = 0;
+        let lastUpdate = Date.now();
+        let streak = 0;
+        let maxFocusedStreak = 0;
+        let totalFrames = 0;
+        let focusedFrames = 0;
+        let distractedFrames = 0;
+        let timelineData = [];
+        const maxTimelineLength = 400;
+
+        // --- Mediapipe Face Mesh Setup ---
+        let faceMesh;
+        let faceMeshReady = false;
+        let latestLandmarks = null;
+
+        function setupFaceMesh() {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            faceMesh.onResults(onFaceMeshResults);
+            faceMeshReady = true;
+        }
+
+        function onFaceMeshResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                latestLandmarks = results.multiFaceLandmarks[0];
+            } else {
+                latestLandmarks = null;
+            }
+        }
+
+        // --- Helper: Crop region from landmarks ---
+        function cropRegionFromLandmarks(ctx, landmarks, indices, padding = 8) {
+            // indices: array of landmark indices for the region
+            let xs = indices.map(i => landmarks[i].x * 400);
+            let ys = indices.map(i => landmarks[i].y * 300);
+            let minX = Math.max(0, Math.min(...xs) - padding);
+            let minY = Math.max(0, Math.min(...ys) - padding);
+            let maxX = Math.min(400, Math.max(...xs) + padding);
+            let maxY = Math.min(300, Math.max(...ys) + padding);
+            let w = maxX - minX;
+            let h = maxY - minY;
+            if (w < 8 || h < 8) return null;
+            return ctx.getImageData(minX, minY, w, h);
+        }
+
+        // --- Landmark indices for left eye, right eye, mouth (Mediapipe) ---
+        const LEFT_EYE_IDX = [33, 133, 160, 159, 158, 157, 173, 246];
+        const RIGHT_EYE_IDX = [362, 263, 387, 386, 385, 384, 398, 466];
+        const MOUTH_IDX = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191];
+
+        // --- Webcam and Face Mesh Init ---
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    setupFaceMesh();
+                    sendFrames();
+                };
+            })
+            .catch(err => {
+                alert('Could not access webcam: ' + err);
+            });
+
+        // --- Run Face Mesh on each frame ---
+        async function detectFaceMesh() {
+            if (!faceMeshReady) return;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            await faceMesh.send({ image: canvas });
+        }
+
+        // --- Send frames to backend every 500ms ---
+        async function sendFrames() {
+            await detectFaceMesh();
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+            let leftEyeCrop = null, rightEyeCrop = null, mouthCrop = null;
+            if (latestLandmarks) {
+                // Draw overlays
+                overlayCtx.strokeStyle = 'lime';
+                overlayCtx.lineWidth = 2;
+                // Left eye
+                let leftEyeBox = cropRegionFromLandmarks(ctx, latestLandmarks, LEFT_EYE_IDX, 8);
+                if (leftEyeBox) {
+                    leftEyeCrop = leftEyeBox;
+                    let xs = LEFT_EYE_IDX.map(i => latestLandmarks[i].x * 400);
+                    let ys = LEFT_EYE_IDX.map(i => latestLandmarks[i].y * 300);
+                    overlayCtx.strokeRect(Math.min(...xs) - 8, Math.min(...ys) - 8, Math.max(...xs) - Math.min(...xs) + 16, Math.max(...ys) - Math.min(...ys) + 16);
+                }
+                // Right eye
+                let rightEyeBox = cropRegionFromLandmarks(ctx, latestLandmarks, RIGHT_EYE_IDX, 8);
+                if (rightEyeBox) {
+                    rightEyeCrop = rightEyeBox;
+                    let xs = RIGHT_EYE_IDX.map(i => latestLandmarks[i].x * 400);
+                    let ys = RIGHT_EYE_IDX.map(i => latestLandmarks[i].y * 300);
+                    overlayCtx.strokeRect(Math.min(...xs) - 8, Math.min(...ys) - 8, Math.max(...xs) - Math.min(...xs) + 16, Math.max(...ys) - Math.min(...ys) + 16);
+                }
+                // Mouth
+                overlayCtx.strokeStyle = 'blue';
+                let mouthBox = cropRegionFromLandmarks(ctx, latestLandmarks, MOUTH_IDX, 10);
+                if (mouthBox) {
+                    mouthCrop = mouthBox;
+                    let xs = MOUTH_IDX.map(i => latestLandmarks[i].x * 400);
+                    let ys = MOUTH_IDX.map(i => latestLandmarks[i].y * 300);
+                    overlayCtx.strokeRect(Math.min(...xs) - 10, Math.min(...ys) - 10, Math.max(...xs) - Math.min(...xs) + 20, Math.max(...ys) - Math.min(...ys) + 20);
+                }
+            }
+            // Prepare form-data
+            let formData = new FormData();
+            // Helper: put ImageData into a canvas and get blob
+            function imageDataToBlob(imageData) {
+                let tempCanvas = document.createElement('canvas');
+                tempCanvas.width = imageData.width;
+                tempCanvas.height = imageData.height;
+                tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+                return new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg'));
+            }
+            // If any crop is missing, send the whole frame for that region
+            if (!leftEyeCrop) {
+                ctx.drawImage(video, 0, 0, 32, 32);
+                leftEyeCrop = ctx.getImageData(0, 0, 32, 32);
+            }
+            if (!rightEyeCrop) {
+                ctx.drawImage(video, 0, 0, 32, 32);
+                rightEyeCrop = ctx.getImageData(0, 0, 32, 32);
+            }
+            if (!mouthCrop) {
+                ctx.drawImage(video, 0, 0, 32, 32);
+                mouthCrop = ctx.getImageData(0, 0, 32, 32);
+            }
+            // Convert crops to blobs and send
+            Promise.all([
+                imageDataToBlob(leftEyeCrop),
+                imageDataToBlob(rightEyeCrop),
+                imageDataToBlob(mouthCrop)
+            ]).then(([leftEyeBlob, rightEyeBlob, mouthBlob]) => {
+                formData.append('left_eye', leftEyeBlob, 'left_eye.jpg');
+                formData.append('right_eye', rightEyeBlob, 'right_eye.jpg');
+                formData.append('mouth', mouthBlob, 'mouth.jpg');
+                fetch('http://localhost:8000/api/frame', {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        // Update status and timers
+                        statusSpan.textContent = data.status;
+                        statusSpan.className = data.status;
+                        focusedTime = data.focused_time;
+                        distractedTime = data.distracted_time;
+                        focusedTimeSpan.textContent = focusedTime;
+                        distractedTimeSpan.textContent = distractedTime;
+                        updateTimeline(data.status);
+                        updateSessionStats(data.status);
+                        // Show warning if distracted
+                        if (data.status === 'Distracted') {
+                            warningBanner.textContent = 'Distraction detected! (Eyes closed or yawn)';
+                            warningBanner.style.display = 'block';
+                        } else {
+                            warningBanner.style.display = 'none';
+                        }
+                    })
+                    .catch(err => {
+                        statusSpan.textContent = 'Error';
+                    });
+            });
+            setTimeout(sendFrames, 500);
+        }
+        function updateTimeline(status) {
+            timelineData.push(status);
+            if (timelineData.length > maxTimelineLength) {
+                timelineData.shift();
+            }
+            timelineCtx.clearRect(0, 0, timeline.width, timeline.height);
+            for (let i = 0; i < timelineData.length; i++) {
+                timelineCtx.fillStyle = timelineData[i] === 'Focused' ? 'lime' : 'red';
+                timelineCtx.fillRect(i, 0, 1, timeline.height);
+            }
+        }
+        function updateSessionStats(status) {
+            totalFrames++;
+            if (status === 'Focused') {
+                focusedFrames++;
+                streak++;
+                if (streak > maxFocusedStreak) maxFocusedStreak = streak;
+            } else if (status === 'Distracted') {
+                distractedFrames++;
+                streak = 0;
+            }
+            const percentFocused = ((focusedFrames / totalFrames) * 100).toFixed(1);
+            const percentDistracted = ((distractedFrames / totalFrames) * 100).toFixed(1);
+            sessionStats.innerHTML = `
+                <b>Session Stats:</b><br>
+                Focused: <span style='color:#1a7f1a;'>${percentFocused}%</span> &nbsp;|
+                Distracted: <span style='color:#a11a1a;'>${percentDistracted}%</span> &nbsp;|
+                Longest Focused Streak: <span style='color:#1a7f1a;'>${(maxFocusedStreak / 2).toFixed(1)}s</span>
+            `;
+        }
+    </script>
+</body>
+
+</html>
