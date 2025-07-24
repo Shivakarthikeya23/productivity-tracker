@@ -1,7 +1,7 @@
-  fastapi
-  uvicorn
-  torch
-  torchvision
-  pillow
-  opencv-python
-  numpy
+fastapi
+uvicorn
+torch
+torchvision
+pillow
+opencv-python
+numpy
