@@ -4,8 +4,12 @@ from fastapi.responses import JSONResponse
 import numpy as np
 import cv2
 import torch
-from backend.ml.train_eye_state import EyeCNN, get_transforms as get_eye_transforms
-from backend.ml.train_yawn import YawnCNN, get_transforms as get_yawn_transforms
+try:
+    from backend.ml.train_eye_state import EyeCNN, get_transforms as get_eye_transforms
+    from backend.ml.train_yawn import YawnCNN, get_transforms as get_yawn_transforms
+except ModuleNotFoundError:
+    from ml.train_eye_state import EyeCNN, get_transforms as get_eye_transforms
+    from ml.train_yawn import YawnCNN, get_transforms as get_yawn_transforms
 import time
 from PIL import Image
 import io
